@@ -136,9 +136,9 @@ if uploaded is not None:
 
     chunk_size = st.number_input(
         "Images per ZIP file",
-        min_value=200, max_value=2000, value=1000, step=100,
-        help="Large batches are split into multiple ZIPs to stay within Streamlit Cloud memory limits. "
-             "1000 is a safe default.",
+        min_value=100, max_value=500, value=300, step=50,
+        help="Each ZIP is served from memory on download, so it must stay small on Streamlit Cloud's "
+             "~1 GB limit. At max quality, 300 per ZIP is safe. Lower this if downloads still fail.",
     )
 
     threads = st.slider(
@@ -268,22 +268,33 @@ if uploaded is not None:
 
         st.subheader("Download your files")
         if num_chunks > 1:
-            st.caption("Large batch split into multiple ZIPs — download each one.")
+            st.caption("Batch split into multiple ZIPs — download each one separately.")
 
-        # Read each ZIP from disk ONLY when its button renders — one at a time.
+        # Each button reads its ZIP from disk ONLY when clicked (lazy callable),
+        # and lives in a fragment so clicking it doesn't rerun the whole app.
+        @st.fragment
+        def zip_download(zpath):
+            if not os.path.exists(zpath):
+                st.error(f"ZIP no longer available (server restarted): "
+                         f"{os.path.basename(zpath)}. Please re-run.")
+                return
+            size_mb = os.path.getsize(zpath) / (1024 * 1024)
+
+            def load_bytes():
+                with open(zpath, "rb") as fh:
+                    return fh.read()
+
+            st.download_button(
+                f"⬇️ {os.path.basename(zpath)}  ({size_mb:.0f} MB)",
+                data=load_bytes,               # callable -> read only on click
+                file_name=os.path.basename(zpath),
+                mime="application/zip",
+                key=f"dl_{zpath}",
+                on_click="ignore",             # don't rerun app on download
+            )
+
         for zpath in zip_paths:
-            if os.path.exists(zpath):
-                with open(zpath, "rb") as f:
-                    st.download_button(
-                        f"⬇️ {os.path.basename(zpath)}",
-                        data=f.read(),
-                        file_name=os.path.basename(zpath),
-                        mime="application/zip",
-                        key=f"dl_{zpath}",
-                    )
-            else:
-                st.error(f"ZIP no longer available (server restarted): {os.path.basename(zpath)}. "
-                         "Please re-run.")
+            zip_download(zpath)
 
         # ---- Summary ----
         if failures:
