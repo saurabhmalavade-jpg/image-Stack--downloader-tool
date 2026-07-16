@@ -134,59 +134,156 @@ if uploaded is not None:
     total_imgs = sum(len(imgs) for _, _, _, imgs in valid_rows)
     st.write(f"Ready to process **{len(valid_rows)} rows / {total_imgs} images**.")
 
+    chunk_size = st.number_input(
+        "Images per ZIP file",
+        min_value=200, max_value=2000, value=1000, step=100,
+        help="Large batches are split into multiple ZIPs to stay within Streamlit Cloud memory limits. "
+             "1000 is a safe default.",
+    )
+
+    threads = st.slider(
+        "Parallel downloads",
+        min_value=4, max_value=32, value=16, step=4,
+        help="Higher = faster, but some servers may rate-limit. 16 is a good balance.",
+    )
+
     # ---- Step 3: Process ----
     if st.button("Download & Rename Images", type="primary"):
-        zip_buffer = io.BytesIO()
+        import tempfile, os, glob
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         failures = []
         success_count = 0
         seen_names = {}
 
         progress = st.progress(0.0)
         status = st.empty()
-        done = 0
 
         headers = {"User-Agent": "Mozilla/5.0 (compatible; ImageDownloader/1.0)"}
 
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for excel_row, master, mpn, images in valid_rows:
-                for slot, url in images:
-                    done += 1
-                    progress.progress(done / total_imgs)
-                    base = f"{mpn}_{master}_{mid_token}_{slot:02d}"
-                    # avoid overwriting duplicate names
-                    name = base
-                    if name in seen_names:
-                        seen_names[name] += 1
-                        name = f"{base}_dup{seen_names[base]}"
-                    else:
-                        seen_names[name] = 0
-                    fname = f"{name}.jpg"
-                    status.text(f"Row {excel_row}: {fname}")
+        # Work on disk, not in RAM
+        work_dir = tempfile.mkdtemp(prefix="imgdl_")
+        img_dir = os.path.join(work_dir, "images")
+        zip_dir = os.path.join(work_dir, "zips")
+        os.makedirs(img_dir, exist_ok=True)
+        os.makedirs(zip_dir, exist_ok=True)
 
-                    try:
-                        resp = requests.get(url, headers=headers, timeout=30)
-                        resp.raise_for_status()
-                        img = Image.open(io.BytesIO(resp.content))
-                        if img.mode != "RGB":
-                            img = img.convert("RGB")
-                        out = io.BytesIO()
-                        img.save(out, format="JPEG", quality=95)
-                        zf.writestr(fname, out.getvalue())
-                        success_count += 1
-                    except Exception as e:
-                        failures.append((excel_row, fname, url, str(e)[:120]))
+        # ---- Build the full job list first (assign unique filenames up front) ----
+        jobs = []  # (excel_row, fname, url)
+        for excel_row, master, mpn, images in valid_rows:
+            for slot, url in images:
+                base = f"{mpn}_{master}_{mid_token}_{slot:02d}"
+                name = base
+                if name in seen_names:
+                    seen_names[base] += 1
+                    name = f"{base}_dup{seen_names[base]}"
+                else:
+                    seen_names[name] = 0
+                jobs.append((excel_row, f"{name}.jpg", url))
+
+        # ---- Worker: download + save one image at maximum quality ----
+        session = requests.Session()
+        session.headers.update(headers)
+
+        def fetch_one(job):
+            excel_row, fname, url = job
+            try:
+                resp = session.get(url, timeout=60)
+                resp.raise_for_status()
+                img = Image.open(io.BytesIO(resp.content))
+                # Preserve ICC profile if present for accurate color
+                icc = img.info.get("icc_profile")
+                if img.mode not in ("RGB", "L"):
+                    img = img.convert("RGB")
+                elif img.mode == "L":
+                    img = img.convert("RGB")
+                save_kwargs = dict(
+                    format="JPEG",
+                    quality=100,          # maximum quality
+                    subsampling=0,        # 4:4:4, no chroma subsampling (sharpest)
+                    optimize=True,
+                    progressive=True,
+                )
+                if icc:
+                    save_kwargs["icc_profile"] = icc
+                img.save(os.path.join(img_dir, fname), **save_kwargs)
+                return (True, excel_row, fname, url, None)
+            except Exception as e:
+                return (False, excel_row, fname, url, str(e)[:120])
+
+        # ---- Run downloads in parallel ----
+        done = 0
+        with ThreadPoolExecutor(max_workers=threads) as ex:
+            futures = [ex.submit(fetch_one, j) for j in jobs]
+            for fut in as_completed(futures):
+                ok, excel_row, fname, url, err = fut.result()
+                done += 1
+                if done % 5 == 0 or done == total_imgs:
+                    progress.progress(done / total_imgs)
+                    status.text(f"Downloaded {done}/{total_imgs} ...")
+                if ok:
+                    success_count += 1
+                else:
+                    failures.append((excel_row, fname, url, err))
+
+        # ---- Pack into chunked ZIPs on disk ----
+        status.text("Packing ZIP files...")
+        all_files = sorted(glob.glob(os.path.join(img_dir, "*.jpg")))
+        zip_paths = []
+        num_chunks = (len(all_files) + chunk_size - 1) // max(1, chunk_size)
+        for ci in range(num_chunks):
+            part = all_files[ci * chunk_size:(ci + 1) * chunk_size]
+            suffix = f"_part{ci + 1}of{num_chunks}" if num_chunks > 1 else ""
+            zpath = os.path.join(zip_dir, f"images_{mid_token}{suffix}.zip")
+            # ZIP_STORED: images are already compressed (JPEG); storing is faster and
+            # avoids re-compression overhead / memory spikes during packing.
+            with zipfile.ZipFile(zpath, "w", zipfile.ZIP_STORED) as zf:
+                for fp in part:
+                    zf.write(fp, arcname=os.path.basename(fp))
+            zip_paths.append(zpath)
 
         progress.progress(1.0)
         status.text("Done.")
 
-        st.success(f"Completed. {success_count} image(s) downloaded, {len(failures)} failed.")
+        # Persist results so download buttons survive Streamlit reruns
+        st.session_state["zip_paths"] = zip_paths
+        st.session_state["num_chunks"] = num_chunks
+        st.session_state["success_count"] = success_count
+        st.session_state["failures"] = failures
+        st.session_state["gap_rows"] = gap_rows
 
-        st.download_button(
-            "⬇️ Download ZIP",
-            data=zip_buffer.getvalue(),
-            file_name=f"images_{mid_token}.zip",
-            mime="application/zip",
+    # ---- Results (rendered from session_state so downloads don't re-trigger processing) ----
+    if "zip_paths" in st.session_state and st.session_state["zip_paths"]:
+        import os
+        zip_paths = st.session_state["zip_paths"]
+        num_chunks = st.session_state["num_chunks"]
+        success_count = st.session_state["success_count"]
+        failures = st.session_state["failures"]
+        gap_rows = st.session_state.get("gap_rows", [])
+
+        st.success(
+            f"Completed. {success_count} image(s) downloaded, {len(failures)} failed. "
+            f"Split into {len(zip_paths)} ZIP file(s)."
         )
+
+        st.subheader("Download your files")
+        if num_chunks > 1:
+            st.caption("Large batch split into multiple ZIPs — download each one.")
+
+        # Read each ZIP from disk ONLY when its button renders — one at a time.
+        for zpath in zip_paths:
+            if os.path.exists(zpath):
+                with open(zpath, "rb") as f:
+                    st.download_button(
+                        f"⬇️ {os.path.basename(zpath)}",
+                        data=f.read(),
+                        file_name=os.path.basename(zpath),
+                        mime="application/zip",
+                        key=f"dl_{zpath}",
+                    )
+            else:
+                st.error(f"ZIP no longer available (server restarted): {os.path.basename(zpath)}. "
+                         "Please re-run.")
 
         # ---- Summary ----
         if failures:
