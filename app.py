@@ -7,50 +7,125 @@ from PIL import Image
 
 st.set_page_config(page_title="Image Downloader & Renamer", page_icon="🖼️", layout="centered")
 
-# ---- Naming convention options ----
-NAMING_CONVENTIONS = [
-    "MPN_MasterID_ALG_PL_ISP_XX",
-    "MPN_MasterID_ALGO_PL_ISP_XX",
-    "MPN_MasterID_BSTB_US_ISP_XX",
-    "MPN_MasterID_BSTB_CA_ISP_XX",
-    "MPN_MasterID_BOL_NL_ISP_XX",
-    "MPN_MasterID_BOL_BE_ISP_XX",
-    "MPN_MasterID_EBY_US_ISP_XX",
-    "MPN_MasterID_EBY_DE_ISP_XX",
-    "MPN_MasterID_EBY_UK_ISP_XX",
-    "MPN_MasterID_KHL_US_ISP_XX",
-    "MPN_MasterID_LWS_US_ISP_XX",
-    "MPN_MasterID_MCY_US_ISP_XX",
-    "MPN_MasterID_MM_DE_ISP_XX",
-    "MPN_MasterID_MLBR_US_ISP_XX",
-    "MPN_MasterID_NRDM_US_ISP_XX",
-    "MPN_MasterID_OCT_FR_ISP_XX",
-    "MPN_MasterID_OTTO_DE_ISP_XX",
-    "MPN_MasterID_TGT_US_ISP_XX",
-    "MPN_MasterID_TSC_UK_ISP_XX",
-    "MPN_MasterID_TTS_US_ISP_XX",
-    "MPN_MasterID_TTS_UK_ISP_XX",
-    "MPN_MasterID_WM_US_ISP_XX",
-    "MPN_MasterID_WM_CA_ISP_XX",
-    "MPN_MasterID_ZL_DE_ISP_XX",
-    "MPN_MasterID_NOON_AE_ISP_XX",
-    "MPN_MasterID_SPFY_US_ISP_XX",
+# ---- Marketplace config: naming convention + recommended dimensions ----
+# dims = (width, height) or None if the marketplace has no published spec.
+MARKETPLACES = [
+    {"convention": "MPN_MasterID_ALG_PL_ISP_XX",   "name": "Allegro PL",       "dims": (2200, 2200)},
+    {"convention": "MPN_MasterID_ALGO_PL_ISP_XX",  "name": "Allegro One PL",   "dims": (2200, 2200)},
+    {"convention": "MPN_MasterID_BSTB_US_ISP_XX",  "name": "Best Buy US",      "dims": (2000, 2000)},
+    {"convention": "MPN_MasterID_BSTB_CA_ISP_XX",  "name": "Best Buy CA",      "dims": (2000, 2000)},
+    {"convention": "MPN_MasterID_BOL_NL_ISP_XX",   "name": "Bol NL",           "dims": (2400, 2400)},
+    {"convention": "MPN_MasterID_BOL_BE_ISP_XX",   "name": "Bol BE",           "dims": (2400, 2400)},
+    {"convention": "MPN_MasterID_EBY_US_ISP_XX",   "name": "eBay US",          "dims": (1600, 1600)},
+    {"convention": "MPN_MasterID_EBY_DE_ISP_XX",   "name": "eBay DE",          "dims": (1600, 1600)},
+    {"convention": "MPN_MasterID_EBY_UK_ISP_XX",   "name": "eBay UK",          "dims": (1600, 1600)},
+    {"convention": "MPN_MasterID_KHL_US_ISP_XX",   "name": "Kohl's US",        "dims": (1000, 1000)},
+    {"convention": "MPN_MasterID_LWS_US_ISP_XX",   "name": "Lowes US",         "dims": (1000, 1000)},
+    {"convention": "MPN_MasterID_MCY_US_ISP_XX",   "name": "Macy's US",        "dims": (1000, 1000)},
+    {"convention": "MPN_MasterID_MM_DE_ISP_XX",    "name": "MediaMarkt DE",    "dims": (1200, 1200)},
+    {"convention": "MPN_MasterID_MLBR_US_ISP_XX",  "name": "Mercado Libre US", "dims": (1600, 1600)},
+    {"convention": "MPN_MasterID_NRDM_US_ISP_XX",  "name": "Nordstrom US",     "dims": (2600, 4000)},
+    {"convention": "MPN_MasterID_OCT_FR_ISP_XX",   "name": "Octopia FR",       "dims": (500, 500)},
+    {"convention": "MPN_MasterID_OTTO_DE_ISP_XX",  "name": "OTTO DE",          "dims": (960, 480)},
+    {"convention": "MPN_MasterID_TGT_US_ISP_XX",   "name": "Target US",        "dims": (2400, 2400)},
+    {"convention": "MPN_MasterID_TSC_UK_ISP_XX",   "name": "Tesco UK",         "dims": (2400, 2400)},
+    {"convention": "MPN_MasterID_TTS_US_ISP_XX",   "name": "TikTok US",        "dims": (1000, 1000)},
+    {"convention": "MPN_MasterID_TTS_UK_ISP_XX",   "name": "TikTok UK",        "dims": (1000, 1000)},
+    {"convention": "MPN_MasterID_WM_US_ISP_XX",    "name": "Walmart US",       "dims": (2200, 2200)},
+    {"convention": "MPN_MasterID_WM_CA_ISP_XX",    "name": "Walmart CA",       "dims": (2200, 2200)},
+    {"convention": "MPN_MasterID_ZL_DE_ISP_XX",    "name": "Zalando DE",       "dims": (2000, 2000)},
+    {"convention": "MPN_MasterID_NOON_AE_ISP_XX",  "name": "NOON AE",          "dims": None},
+    {"convention": "MPN_MasterID_SPFY_US_ISP_XX",  "name": "Shopify US",       "dims": None},
 ]
 
+MP_BY_CONVENTION = {m["convention"]: m for m in MARKETPLACES}
+
+# Padding / transparency-flatten colour. Fixed to white — marketplaces require a white background.
+BG_RGB = (255, 255, 255)
+
 st.title("🖼️ Image Downloader & Renamer")
-st.caption("Download product images and rename them by marketplace naming convention.")
+st.caption("Download product images, rename them by marketplace naming convention, "
+           "and resize to that marketplace's required dimensions.")
 
 # ---- Step 1: Naming convention ----
 st.subheader("Step 1 — Select naming convention")
-convention = st.selectbox("Naming convention", NAMING_CONVENTIONS, index=6)
+
+
+def convention_label(conv):
+    m = MP_BY_CONVENTION[conv]
+    if m["dims"]:
+        return f"{m['name']} — {m['dims'][0]} × {m['dims'][1]}  ({conv})"
+    return f"{m['name']} — no dimension spec  ({conv})"
+
+
+convention = st.selectbox(
+    "Naming convention",
+    [m["convention"] for m in MARKETPLACES],
+    index=6,
+    format_func=convention_label,
+)
+
+marketplace = MP_BY_CONVENTION[convention]
 
 # The middle part (marketplace token), e.g. "EBY_US_ISP" from "MPN_MasterID_EBY_US_ISP_XX"
-# Strip leading "MPN_MasterID_" and trailing "_XX"
 mid_token = convention.replace("MPN_MasterID_", "").rsplit("_XX", 1)[0]
 st.info(f"Filenames will look like:  `MPN_MasterID_{mid_token}_01.jpg`")
 
-# ---- Step 2: Upload ----
-st.subheader("Step 2 — Upload Excel file")
+# ---- Step 2: Resize settings ----
+st.subheader("Step 2 — Resize settings")
+
+if marketplace["dims"]:
+    default_w, default_h = marketplace["dims"]
+    st.caption(f"**{marketplace['name']}** recommended dimensions: "
+               f"`{default_w} × {default_h}` (pre-filled below — override if needed).")
+else:
+    default_w, default_h = 0, 0
+    st.caption(f"**{marketplace['name']}** has no dimension spec in the reference sheet. "
+               "Images will keep their original size unless you enter dimensions manually.")
+
+resize_enabled = st.checkbox("Resize images", value=bool(marketplace["dims"]))
+
+target_dims = None
+resize_mode = "pad"
+allow_upscale = True
+
+if resize_enabled:
+    c1, c2 = st.columns(2)
+    with c1:
+        target_w = st.number_input("Width (px)", min_value=50, max_value=10000,
+                                   value=int(default_w or 1600), step=50)
+    with c2:
+        target_h = st.number_input("Height (px)", min_value=50, max_value=10000,
+                                   value=int(default_h or 1600), step=50)
+    target_dims = (int(target_w), int(target_h))
+
+    resize_mode = st.radio(
+        "Resize method",
+        options=["pad", "fit", "stretch"],
+        format_func=lambda m: {
+            "pad": "Pad to exact canvas — keeps aspect ratio, fills the rest with background colour (recommended)",
+            "fit": "Fit within bounds — keeps aspect ratio, no padding (output may be smaller than target)",
+            "stretch": "Stretch to exact size — distorts the image (use only if a marketplace demands it)",
+        }[m],
+        index=0,
+    )
+
+    if resize_mode == "pad":
+        st.caption("Padding colour: **white** (`#FFFFFF`).")
+
+    allow_upscale = st.checkbox(
+        "Allow upscaling smaller images",
+        value=True,
+        help="Marketplaces usually reject images below their minimum size, so upscaling is on by default. "
+             "Upscaled images lose sharpness — they're listed separately in the QC report after processing.",
+    )
+
+    if target_dims[0] != target_dims[1]:
+        st.warning(f"Non-square target ({target_dims[0]} × {target_dims[1]}). "
+                   "Double-check this against the marketplace spec before bulk processing.")
+
+# ---- Step 3: Upload ----
+st.subheader("Step 3 — Upload Excel file")
 st.caption("Column A = Master ID, Column B = MPN, columns C onward = image URLs (in order).")
 uploaded = st.file_uploader("Excel file", type=["xlsx", "xls"])
 
@@ -64,6 +139,50 @@ def is_url(val):
 
 def is_blank(val):
     return val is None or str(val).strip() == "" or (isinstance(val, float) and pd.isna(val))
+
+
+def flatten_to_rgb(img, bg_rgb):
+    """Convert any mode to RGB, compositing transparency onto bg_rgb instead of black."""
+    if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+        rgba = img.convert("RGBA")
+        canvas = Image.new("RGB", rgba.size, bg_rgb)
+        canvas.paste(rgba, mask=rgba.split()[-1])
+        return canvas
+    if img.mode != "RGB":
+        return img.convert("RGB")
+    return img
+
+
+def resize_image(img, target, mode, allow_up, bg_rgb):
+    """Returns (image, was_upscaled). img must already be RGB."""
+    if not target:
+        return img, False
+
+    tw, th = target
+
+    if mode == "stretch":
+        upscaled = img.width < tw or img.height < th
+        return img.resize((tw, th), Image.LANCZOS), upscaled
+
+    scale = min(tw / img.width, th / img.height)
+    if scale > 1 and not allow_up:
+        scale = 1.0
+    upscaled = scale > 1.0
+
+    new_w = max(1, round(img.width * scale))
+    new_h = max(1, round(img.height * scale))
+    if (new_w, new_h) != img.size:
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+
+    if mode == "fit":
+        return img, upscaled
+
+    # pad to exact canvas, centered
+    if (new_w, new_h) == (tw, th):
+        return img, upscaled
+    canvas = Image.new("RGB", (tw, th), bg_rgb)
+    canvas.paste(img, ((tw - new_w) // 2, (th - new_h) // 2))
+    return canvas, upscaled
 
 
 if uploaded is not None:
@@ -133,6 +252,11 @@ if uploaded is not None:
 
     total_imgs = sum(len(imgs) for _, _, _, imgs in valid_rows)
     st.write(f"Ready to process **{len(valid_rows)} rows / {total_imgs} images**.")
+    if target_dims:
+        st.write(f"Output size: **{target_dims[0]} × {target_dims[1]}** "
+                 f"({resize_mode} method) for {marketplace['name']}.")
+    else:
+        st.write("Output size: **original** (no resizing).")
 
     chunk_size = st.number_input(
         "Images per ZIP file",
@@ -147,14 +271,17 @@ if uploaded is not None:
         help="Higher = faster, but some servers may rate-limit. 16 is a good balance.",
     )
 
-    # ---- Step 3: Process ----
-    if st.button("Download & Rename Images", type="primary"):
+    # ---- Step 4: Process ----
+    if st.button("Download, Resize & Rename Images", type="primary"):
         import tempfile, os, glob
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         failures = []
+        upscaled_rows = []
         success_count = 0
         seen_names = {}
+
+        bg_rgb = BG_RGB
 
         progress = st.progress(0.0)
         status = st.empty()
@@ -181,7 +308,7 @@ if uploaded is not None:
                     seen_names[name] = 0
                 jobs.append((excel_row, f"{name}.jpg", url))
 
-        # ---- Worker: download + save one image at maximum quality ----
+        # ---- Worker: download + resize + save one image at maximum quality ----
         session = requests.Session()
         session.headers.update(headers)
 
@@ -191,12 +318,20 @@ if uploaded is not None:
                 resp = session.get(url, timeout=60)
                 resp.raise_for_status()
                 img = Image.open(io.BytesIO(resp.content))
+                img.load()
+                src_size = img.size
+
                 # Preserve ICC profile if present for accurate color
                 icc = img.info.get("icc_profile")
-                if img.mode not in ("RGB", "L"):
-                    img = img.convert("RGB")
-                elif img.mode == "L":
-                    img = img.convert("RGB")
+
+                # Flatten transparency onto the padding colour (never black)
+                img = flatten_to_rgb(img, bg_rgb)
+
+                # Resize to marketplace spec
+                img, was_upscaled = resize_image(
+                    img, target_dims, resize_mode, allow_upscale, bg_rgb
+                )
+
                 save_kwargs = dict(
                     format="JPEG",
                     quality=100,          # maximum quality
@@ -207,22 +342,28 @@ if uploaded is not None:
                 if icc:
                     save_kwargs["icc_profile"] = icc
                 img.save(os.path.join(img_dir, fname), **save_kwargs)
-                return (True, excel_row, fname, url, None)
+                return (True, excel_row, fname, url, None, src_size, img.size, was_upscaled)
             except Exception as e:
-                return (False, excel_row, fname, url, str(e)[:120])
+                return (False, excel_row, fname, url, str(e)[:120], None, None, False)
 
         # ---- Run downloads in parallel ----
         done = 0
         with ThreadPoolExecutor(max_workers=threads) as ex:
             futures = [ex.submit(fetch_one, j) for j in jobs]
             for fut in as_completed(futures):
-                ok, excel_row, fname, url, err = fut.result()
+                ok, excel_row, fname, url, err, src_size, out_size, was_upscaled = fut.result()
                 done += 1
                 if done % 5 == 0 or done == total_imgs:
-                    progress.progress(done / total_imgs)
-                    status.text(f"Downloaded {done}/{total_imgs} ...")
+                    progress.progress(min(done / total_imgs, 1.0))
+                    status.text(f"Processed {done}/{total_imgs} ...")
                 if ok:
                     success_count += 1
+                    if was_upscaled:
+                        upscaled_rows.append((
+                            excel_row, fname,
+                            f"{src_size[0]} × {src_size[1]}",
+                            f"{out_size[0]} × {out_size[1]}",
+                        ))
                 else:
                     failures.append((excel_row, fname, url, err))
 
@@ -231,10 +372,11 @@ if uploaded is not None:
         all_files = sorted(glob.glob(os.path.join(img_dir, "*.jpg")))
         zip_paths = []
         num_chunks = (len(all_files) + chunk_size - 1) // max(1, chunk_size)
+        dim_tag = f"_{target_dims[0]}x{target_dims[1]}" if target_dims else ""
         for ci in range(num_chunks):
             part = all_files[ci * chunk_size:(ci + 1) * chunk_size]
             suffix = f"_part{ci + 1}of{num_chunks}" if num_chunks > 1 else ""
-            zpath = os.path.join(zip_dir, f"images_{mid_token}{suffix}.zip")
+            zpath = os.path.join(zip_dir, f"images_{mid_token}{dim_tag}{suffix}.zip")
             # ZIP_STORED: images are already compressed (JPEG); storing is faster and
             # avoids re-compression overhead / memory spikes during packing.
             with zipfile.ZipFile(zpath, "w", zipfile.ZIP_STORED) as zf:
@@ -251,6 +393,7 @@ if uploaded is not None:
         st.session_state["success_count"] = success_count
         st.session_state["failures"] = failures
         st.session_state["gap_rows"] = gap_rows
+        st.session_state["upscaled_rows"] = upscaled_rows
 
     # ---- Results (rendered from session_state so downloads don't re-trigger processing) ----
     if "zip_paths" in st.session_state and st.session_state["zip_paths"]:
@@ -260,6 +403,7 @@ if uploaded is not None:
         success_count = st.session_state["success_count"]
         failures = st.session_state["failures"]
         gap_rows = st.session_state.get("gap_rows", [])
+        upscaled_rows = st.session_state.get("upscaled_rows", [])
 
         st.success(
             f"Completed. {success_count} image(s) downloaded, {len(failures)} failed. "
@@ -297,6 +441,13 @@ if uploaded is not None:
             zip_download(zpath)
 
         # ---- Summary ----
+        if upscaled_rows:
+            st.subheader("Upscaled images (QC check)")
+            st.caption("These source images were smaller than the target size, so they were enlarged. "
+                       "Enlarging reduces sharpness — worth requesting better source assets from the brand.")
+            st.dataframe(pd.DataFrame(upscaled_rows,
+                                      columns=["Excel Row", "Filename", "Source Size", "Output Size"]),
+                         use_container_width=True, hide_index=True)
         if failures:
             st.subheader("Failed downloads")
             st.dataframe(pd.DataFrame(failures, columns=["Excel Row", "Filename", "URL", "Error"]),
